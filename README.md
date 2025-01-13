@@ -27,7 +27,7 @@ If you use Gmail, `EMAIL_PASSWORD` must be generated following [this guide](http
 
 `RAPID_API_HOST` and `RAPID_API_KEY` should be set to use an API service that allows you to download only books that you can obtain legally, without infringing any copyright. So, please do not use APIs [like this](https://rapidapi.com/tribestick-tribestick-default/api/annas-archive-api) or similar.
 
-Also, be sure to never change `ROBOTSTXT_OBEY` in order to comply with [`robots.txt`](https://www.goodreads.com/robots.txt) rules, no matter if you want to access your own data.
+Also, be sure to never change `ROBOTSTXT_OBEY`.
 
 If you use a Kindle eReader, you can find your `KINDLE_EMAIL` [here](https://www.amazon.com/sendtokindle/email). The link also explains how to set `EMAIL_FROM` as a recognized source for your Kindle. I have no idea if other companies' eReaders support something similar.
 
