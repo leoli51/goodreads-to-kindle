@@ -1,0 +1,26 @@
+# Ignore all compiled artifacts
+*.pyc
+
+# Ignore logs
+*.log
+
+# Ignore generated datasets and files
+*.jl
+*.csv
+*.json
+*.epub
+
+# Ignore virtualenv
+gscraper
+
+# Ignore data
+data
+
+# Ignore pycache
+__pycache__
+
+# Ignore local env
+.env
+
+# Ignore pre-commit
+.pre-commit-config.yaml

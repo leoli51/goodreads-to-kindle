@@ -1,0 +1,5 @@
+python-dateutil
+scrapy
+yapf
+rich
+python-dotenv

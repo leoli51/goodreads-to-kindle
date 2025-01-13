@@ -1,0 +1,1 @@
+All the scraping logic is from [GoodreadsScraper](https://github.com/havanagrawal/GoodreadsScraper), released under [MIT license](./LICENSE)
