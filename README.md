@@ -3,7 +3,14 @@ Send books in your GoodReads' "Want to read" to your eReader
 
 ## Run with python
 
- ### 1. Install requirements
+### 1. Install requirements
+
+```sh
+poetry install
+```
+
+Or 
+
 ```sh
 pip install -r requirements.txt
 ```
