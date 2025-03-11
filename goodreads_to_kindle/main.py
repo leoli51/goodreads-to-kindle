@@ -1,92 +1,85 @@
-from crawl import crawl
+from goodreads_to_kindle.goodreads_scraper.crawl import crawl
 import json
 import time
 
-from email.message import EmailMessage
-import os
-import smtplib
 from constants import LANG_MAP, DATA_FOLDER
-from dotenv import load_dotenv
-from query import get_book, download_book
-
-load_dotenv(override=True)
-
-EMAIL_SMTP = os.getenv("EMAIL_SMTP")
-EMAIL_SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT"))
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASSWD = os.getenv("EMAIL_PASSWORD")
-EMAIL_FROM = os.getenv("EMAIL_FROM")
-KINDLE_EMAIL = os.getenv("KINDLE_EMAIL")
-GOODREADS_ID = os.getenv("GOODREADS_ID")
-
-
-def send_mail(send_from, send_to, subject, text, files):
-    # assert isinstance(send_to, list)
-
-    email = EmailMessage()
-    email["From"] = send_from
-    email["To"] = send_to
-    email["Subject"] = subject
-    email.set_content(text)
-    # attach files
-    for file in files:
-        with open(file, "rb") as f:
-            file_data = f.read()
-            email.add_attachment(
-                file_data,
-                maintype="application",
-                subtype="octet-stream",
-                filename=os.path.basename(file),
-            )
-    server = smtplib.SMTP(EMAIL_SMTP, port=EMAIL_SMTP_PORT)
-    server.starttls()
-    server.login(send_from, EMAIL_PASSWD)
-    server.sendmail(send_from, send_to, email.as_string())
-    server.quit()
-
+from mail import EmailManager
+from repository import JsonRepository
+from settings import Settings
+from models import GoodReadsBook
+from exceptions import BookNotFoundException, EbookConversionError
+from utils import convert_ebook
+from book_provider import ZlibBookProvider
 
 def main():
+    settings = Settings()
+
+    email_manager = EmailManager(
+        smtp=settings.email_smtp,
+        port=settings.email_smtp_port,
+        user=settings.email_user,
+        password=settings.email_password,
+    )
+
+    repository = JsonRepository(workdir=DATA_FOLDER)
+    book_provider =  ZlibBookProvider()
+
     while True:
-        DATA_FOLDER.mkdir(exist_ok=True)
-        user_file = DATA_FOLDER / f"{GOODREADS_ID}.jl"
-        old_shelf = []
-        if user_file.exists():
-            with open(user_file) as f:
-                for line in f:
-                    book = json.loads(line)
-                    old_shelf.append(book)
-        result = crawl(GOODREADS_ID, "to-read")
-        # update the user file
-        with open(user_file, "w") as f:
-            for book in result:
-                f.write(json.dumps(book) + "\n")
-        # get difference between result and old_shelf
-        missing = [book for book in result if book not in old_shelf]
-        print(f"Found {len(missing)} new books")
-        for book in missing:
-            title = book["title"]
-            author = book["author"][0]
-            isbn = book.get("isbn", None)
-            lang = LANG_MAP[book["language"]]
-            book_results = get_book(title, author, lang, isbn)
-            if not book_results:
-                print(f"Book {title} not found")
-                continue
-            book_path = download_book(book_results, DATA_FOLDER)
-            if not book_path:
-                print(f"Error downloading book {title}")
-                continue
-            print("Book downloaded. Sending to kindle email")
-            send_mail(
-                send_from=EMAIL_FROM,
-                send_to=[KINDLE_EMAIL],
-                subject="GoodreadsToKindle - " + str(title),
-                text=f"This is your requested book: {title} by {author}.\n\n--\n\n",
-                files=[str(book_path)],
-            )
-            print("Cleaning up...")
-            book_path.unlink()
-        time.sleep(5 * 1)
+        for user in repository.list_users():
+            print(f"Checking user {user.goodreads_id}")
+            to_read_shelf = [GoodReadsBook.from_scraped_item(item) for item in crawl(user.goodreads_id, "to-read")]
+            missing = [book for book in to_read_shelf if book not in user.books_sent_to_kindle]
+
+            print(f"Found {len(missing)} new books")
+            books_sent = []
+            for book in missing:
+                print(f"Finding book {book.title}")
+                book_file_to_send = None
+
+                # Search for the book in the repository
+                book_paths = repository.get_book_paths(book.isbn)
+                if book_paths:
+                    # Check if we have a compatible extension
+                    extensions = [path.suffix for path in book_paths]
+                    for format in user.supported_formats:
+                        if format in extensions:
+                            book_file_to_send = repository.get_book_path(book.isbn, format)
+                            print(f"Found book {book.title} in repository")
+                            break
+                    # If we don't have a compatible extension, try to convert
+                    if not book_file_to_send:
+                        try:
+                            book_file_to_send = convert_ebook(book_paths[0], user.supported_formats[0])
+                            print(f"Converted book {book.title} to {user.supported_formats[0]}")
+                        except EbookConversionError:
+                            print(f"Error converting book {book.title}")
+                            continue
+                
+                # If we don't have the book, try to download it
+                if not book_file_to_send:
+                    try:
+                        downloaded_book_file = book_provider.download_book(book, DATA_FOLDER)
+                        book_file_to_send = repository.add_book_file(downloaded_book_file, book.isbn, book_file_to_send.suffix)
+                        downloaded_book_file.unlink()
+                        print(f"Book {book.title} downloaded.")
+                    except BookNotFoundException:
+                        print(f"Book {book.title} not found")
+                        continue
+
+                # Send the book
+                email_manager.send_mail(
+                    send_from=settings.email_from,
+                    send_to=[user.kindle_email],
+                    subject=f"GoodreadsToKindle - {book.title}",
+                    text=f"This is your requested book: {book.title} by {book.author}.\n\n--\n\n",
+                    files=[str(book_file_to_send)],
+                )
+                books_sent.append(book)
+            
+            # Update the user in the repository
+            user.books_sent_to_kindle.extend(books_sent)
+            repository.update_user(user)
+        time.sleep(100)
 
 
 if __name__ == "__main__":

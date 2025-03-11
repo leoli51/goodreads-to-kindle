@@ -9,7 +9,6 @@
 #     http://scrapy.readthedocs.org/en/latest/topics/downloader-middleware.html
 #     http://scrapy.readthedocs.org/en/latest/topics/spider-middleware.html
 
-import os
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -24,7 +23,7 @@ NEWSPIDER_MODULE = "goodreads_scraper.spiders"
 # USER_AGENT = 'GoodreadsScraper (+http://www.yourdomain.com)'
 
 # Obey robots.txt rules
-ROBOTSTXT_OBEY = os.getenv("ROBOTSTXT_OBEY", "True") == "True"
+ROBOTSTXT_OBEY = False #os.getenv("ROBOTSTXT_OBEY", "True") == "True"
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
 # CONCURRENT_REQUESTS = 32

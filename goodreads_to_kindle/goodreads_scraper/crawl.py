@@ -13,8 +13,7 @@ from pathlib import Path
 import json
 import sys
 
-from goodreads_scraper.items import BookItem
-
+from items import BookItem
 
 def crawl(user_id: str, shelf: str, log_file: str = "scrapy.log") -> list[dict]:
     """
@@ -116,4 +115,6 @@ class ProgressUpdater:
 
 
 if __name__ == "__main__":
-    print(crawl("169061006-pietro-fanti", "to-read"))
+    from dotenv import load_dotenv
+    load_dotenv()
+    print(crawl("166551569-leonardo-la-rocca", "to-read"))
