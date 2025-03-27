@@ -11,10 +11,10 @@ class EmailManager:
         self.user = user
         self.password = password
         
-
-    def send_mail(self, send_from: str, send_to: str, subject: str, text: str, file_paths: list[str]) -> None:
+    
+    def send_mail(self, send_to: str, subject: str, text: str, file_paths: list[str]) -> None:
         email = EmailMessage()
-        email["From"] = send_from
+        email["From"] = self.user
         email["To"] = send_to
         email["Subject"] = subject
         email.set_content(text)
@@ -32,6 +32,7 @@ class EmailManager:
         
         server = smtplib.SMTP(self.smtp, port=self.port)
         server.starttls()
-        server.login(send_from, self.password)
-        server.sendmail(send_from, send_to, email.as_string())
+        server.login(self.user, self.password)
+        server.sendmail(self.user, send_to, email.as_string())
         server.quit()
+
