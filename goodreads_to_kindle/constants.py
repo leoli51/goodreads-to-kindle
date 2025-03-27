@@ -37,8 +37,3 @@ LANG_MAP = {
 
 DATA_FOLDER = Path(__file__).parent.parent / "data"
 
-HEADERS = {
-    "x-rapidapi-key": os.getenv("RAPID_API_KEY"),
-    "x-rapidapi-host": os.getenv("RAPID_API_HOST"),
-}
-URL = f"https://{os.getenv('RAPID_API_HOST')}"

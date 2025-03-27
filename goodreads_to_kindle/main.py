@@ -1,93 +1,92 @@
-from crawl import crawl
-import json
-import time
-
-from email.message import EmailMessage
-import os
-import smtplib
+from goodreads_scraper.crawl import fetch_want_to_read
+from book_provider import ZlibBookProvider
 from constants import LANG_MAP, DATA_FOLDER
-from dotenv import load_dotenv
-from query import get_book, download_book
+from exceptions import BookNotFoundException
+from mail import EmailManager
+from models import GoodReadsBook
+from repository import JsonRepository
+from settings import Settings
 
-load_dotenv(override=True)
+import logging
 
-EMAIL_SMTP = os.getenv("EMAIL_SMTP")
-EMAIL_SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT"))
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASSWD = os.getenv("EMAIL_PASSWORD")
-EMAIL_FROM = os.getenv("EMAIL_FROM")
-KINDLE_EMAIL = os.getenv("KINDLE_EMAIL")
-GOODREADS_ID = os.getenv("GOODREADS_ID")
+def setup_logging(log_file: str = "main.log", level: int = logging.INFO):
+    logger = logging.getLogger()  # root logger
+    logger.setLevel(level)
 
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
 
-def send_mail(send_from, send_to, subject, text, files):
-    # assert isinstance(send_to, list)
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
 
-    email = EmailMessage()
-    email["From"] = send_from
-    email["To"] = send_to
-    email["Subject"] = subject
-    email.set_content(text)
-    # attach files
-    for file in files:
-        with open(file, "rb") as f:
-            file_data = f.read()
-            email.add_attachment(
-                file_data,
-                maintype="application",
-                subtype="octet-stream",
-                filename=os.path.basename(file),
-            )
-    server = smtplib.SMTP(EMAIL_SMTP, port=EMAIL_SMTP_PORT)
-    server.starttls()
-    server.login(send_from, EMAIL_PASSWD)
-    server.sendmail(send_from, send_to, email.as_string())
-    server.quit()
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
 
-def main():
-    while True:
-        DATA_FOLDER.mkdir(exist_ok=True)
-        user_file = DATA_FOLDER / f"{GOODREADS_ID}.jl"
-        old_shelf = []
-        if user_file.exists():
-            with open(user_file) as f:
-                for line in f:
-                    book = json.loads(line)
-                    old_shelf.append(book)
-        result = crawl(GOODREADS_ID, "to-read")
-        # update the user file
-        with open(user_file, "w") as f:
-            for book in result:
-                f.write(json.dumps(book) + "\n")
-        # get difference between result and old_shelf
-        missing = [book for book in result if book not in old_shelf]
+async def main():
+    settings = Settings()
+
+    email_manager = EmailManager(
+        smtp=settings.email_smtp,
+        port=settings.email_smtp_port,
+        user=settings.email_user,
+        password=settings.email_password,
+    )
+
+    repository = JsonRepository(workdir=DATA_FOLDER)
+    book_provider =  ZlibBookProvider(settings.zlib_email, settings.zlib_password)
+
+    for user in repository.list_users():
+        print(f"Checking user {user.goodreads_id}")
+        to_read_shelf = [GoodReadsBook.from_scraped_item(item) for item in await fetch_want_to_read(user.goodreads_id)]
+        missing = [book for book in to_read_shelf if book not in user.books_sent_to_kindle]
+
         print(f"Found {len(missing)} new books")
         for book in missing:
-            title = book["title"]
-            author = book["author"][0]
-            isbn = book.get("isbn", None)
-            lang = LANG_MAP[book["language"]]
-            book_results = get_book(title, author, lang, isbn)
-            if not book_results:
-                print(f"Book {title} not found")
-                continue
-            book_path = download_book(book_results, DATA_FOLDER)
-            if not book_path:
-                print(f"Error downloading book {title}")
-                continue
-            print("Book downloaded. Sending to kindle email")
-            send_mail(
-                send_from=EMAIL_FROM,
-                send_to=[KINDLE_EMAIL],
-                subject="GoodreadsToKindle - " + str(title),
-                text=f"This is your requested book: {title} by {author}.\n\n--\n\n",
-                files=[str(book_path)],
-            )
-            print("Cleaning up...")
-            book_path.unlink()
-        time.sleep(5 * 1)
+            print(f"Finding book {book.title}...")
+
+            # Search for the book in the repository
+            book_file_to_send = repository.get_book_path(book)
+
+            # If we don't have the book, try to download it
+            if not book_file_to_send:
+                try:
+                    downloaded_book_file = await book_provider.download_book(book, DATA_FOLDER)
+                    book_file_to_send = repository.add_book_file(downloaded_book_file, book)
+                    downloaded_book_file.unlink()
+                    print(f"Book {book.title} downloaded.")
+                except BookNotFoundException:
+                    print(f"Book {book.title} not found")
+                    continue
+            else:
+                print(f"Book {book.title} found in the repository")
+
+            # Send the book
+            if book_file_to_send:
+                email_manager.send_mail(
+                    send_to=[user.kindle_email],
+                    subject=f"GoodreadsToKindle - {book.title}",
+                    text=f"This is your requested book: {book.title} by {', '.join(book.authors)}.\n\n--\n\n",
+                    file_paths=[str(book_file_to_send)],
+                )
+                print(f"Book {book.title} sent to {user.kindle_email}")
+
+                # Update the user in the repository
+                user.books_sent_to_kindle.append(book)
+                repository.update_user(user)
+        
+        
+    
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    setup_logging()
+
+    asyncio.run(main())

@@ -3,7 +3,13 @@ from pathlib import Path
 
 from typing import Optional
 import logging
-from constants import URL, HEADERS
+import os
+
+HEADERS = {
+    "x-rapidapi-key": os.getenv("RAPID_API_KEY"),
+    "x-rapidapi-host": os.getenv("RAPID_API_HOST"),
+}
+URL = f"https://{os.getenv('RAPID_API_HOST')}"
 
 
 def get_book(
