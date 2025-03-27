@@ -3,7 +3,6 @@ from models import User, GoodReadsBook
 from os import path
 from pathlib import Path
 import shutil
-import json
 import glob
 
 class Repository(ABC):
@@ -17,15 +16,11 @@ class Repository(ABC):
         ...
 
     @abstractmethod
-    def get_book_path(self, isbn: str, format: str) -> Path | None:
+    def get_book_path(self, book: GoodReadsBook) -> Path | None:
         ...
 
     @abstractmethod
-    def get_book_paths(self, isbn: str) -> list[Path]:
-        ...
-
-    @abstractmethod
-    def add_book_file(self, book_file_path: str, isbn: str, format: str) -> None:
+    def add_book_file(self, book_file_path: str, book: GoodReadsBook) -> None:
         ...
 
 
@@ -42,20 +37,29 @@ class JsonRepository(Repository):
     def list_users(self) -> list[User]:
         users = []
         for user_file in glob.glob(path.join(self.user_dir, "*.json")):
-            with open(self.file_path, "r") as file:
-                users.append(User(**user) for user in json.load(file))
+            with open(user_file, "r") as file:
+                users.append(User.from_json(file.read()))
         return users
     
     def update_user(self, user: User) -> None:
         with open(self.user_dir / f"{user.goodreads_id}.json", "w") as file:
-            json.dump(user, file)
+            file.write(user.to_json())
 
-    def get_book_path(self, isbn: str, format: str) -> Path | None:
-        book_file = self.book_dir / f"{isbn}.{format}"
+    def get_book_path(self, book: GoodReadsBook) -> Path | None:
+        book_file = self.book_dir / f"{book.get_file_name()}.epub"
         return book_file if book_file.exists() else None
-    
-    def get_book_paths(self, isbn: str):
-        return [book_file for book_file in self.book_dir.glob(f"{isbn}.*")]
 
-    def add_book_file(self, book_file_path: Path, isbn: str, format: str):
-        return shutil.copy2(book_file_path, self.book_dir / f"{isbn}.{format}")
+    def add_book_file(self, book_file_path: Path, book: GoodReadsBook):
+        return shutil.copy2(book_file_path, self.book_dir / f"{book.get_file_name()}.epub")
+
+
+if __name__ == "__main__":
+    from constants import DATA_FOLDER
+
+    repository = JsonRepository(workdir=DATA_FOLDER)
+    book = GoodReadsBook(authors=["Author"], isbn="123", isbn13="123", language="en", title="Title")
+    users = repository.list_users()
+    print(users)
+    users[0].books_sent_to_kindle.append(book)
+    repository.update_user(users[0])
+    print(repository.list_users())
